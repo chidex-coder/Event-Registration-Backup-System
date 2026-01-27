@@ -159,7 +159,7 @@ class HybridDatabase:
             checkin_time TIMESTAMP,
             status TEXT DEFAULT 'registered',
             source_system TEXT DEFAULT 'manual',
-            barcode_data TEXT,
+            scanned_data TEXT,
             synced_to_cloud INTEGER DEFAULT 0
         )
         ''')
@@ -187,11 +187,11 @@ class HybridDatabase:
         try:
             cursor.execute('''
             INSERT INTO registrations 
-            (ticket_id, first_name, last_name, email, phone, barcode_data)
+            (ticket_id, first_name, last_name, email, phone, scanned_data)
             VALUES (?, ?, ?, ?, ?, ?)
             ''', (
                 data['ticket_id'], data['first_name'], data['last_name'],
-                data['email'], data['phone'], data['barcode_data']
+                data['email'], data['phone'], data['scanned_data']
             ))
             
             conn.commit()
