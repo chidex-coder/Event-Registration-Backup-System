@@ -2,13 +2,14 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 import streamlit as st
-from barcode_generator import BarcodeGenerator
 
 class EventDatabase:
     def __init__(self, db_path="event_registration.db"):
         self.db_path = db_path
+        from barcode_generator import BarcodeGenerator
         self.barcode_gen = BarcodeGenerator()
         self.init_db()
+        self.update_database_schema()
     
     def get_connection(self):
         return sqlite3.connect(self.db_path, check_same_thread=False)
@@ -30,7 +31,7 @@ class EventDatabase:
             checkin_time TIMESTAMP,
             status TEXT DEFAULT 'registered',
             source_system TEXT DEFAULT 'manual',
-            barcode_data TEXT,
+            scanned_data TEXT,
             emergency_contact TEXT,
             medical_notes TEXT,
             worship_team INTEGER DEFAULT 0,
@@ -70,6 +71,39 @@ class EventDatabase:
         conn.commit()
         conn.close()
     
+    def update_database_schema(self):
+        """Update database schema to add missing columns"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Check if scanned_data column exists
+            cursor.execute("PRAGMA table_info(registrations)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Add missing columns if they don't exist
+            columns_to_add = [
+                ('scanned_data', 'TEXT DEFAULT ""'),
+                ('emergency_contact', 'TEXT DEFAULT ""'),
+                ('medical_notes', 'TEXT DEFAULT ""'),
+                ('worship_team', 'INTEGER DEFAULT 0'),
+                ('volunteer', 'INTEGER DEFAULT 0'),
+                ('synced_to_cloud', 'INTEGER DEFAULT 0')
+            ]
+            
+            for column_name, column_type in columns_to_add:
+                if column_name not in columns:
+                    cursor.execute(f"ALTER TABLE registrations ADD COLUMN {column_name} {column_type}")
+                    print(f"Added {column_name} column")
+            
+            conn.commit()
+            print("Database schema updated successfully")
+            
+        except Exception as e:
+            print(f"Error updating schema: {str(e)}")
+        finally:
+            conn.close()
+    
     def create_event(self, event_name, event_date, location, capacity=1000):
         """Create a new event"""
         conn = self.get_connection()
@@ -100,28 +134,44 @@ class EventDatabase:
         if 'ticket_id' not in data or not data['ticket_id']:
             data['ticket_id'] = self.barcode_gen.generate_ticket_id()
         
-        # Generate barcode data
-        data['barcode_data'] = data['ticket_id']
+        # Generate CHECK-IN QR code
+        qr_img = self.barcode_gen.create_checkin_qr(data['ticket_id'])
+        
+        # Ensure all required fields have defaults
+        registration_data = {
+            'ticket_id': data['ticket_id'],
+            'first_name': data.get('first_name', ''),
+            'last_name': data.get('last_name', ''),
+            'email': data.get('email', ''),
+            'phone': data.get('phone', ''),
+            'emergency_contact': data.get('emergency_contact', ''),
+            'medical_notes': data.get('medical_notes', ''),
+            'worship_team': data.get('worship_team', 0),
+            'volunteer': data.get('volunteer', 0),
+            'scanned_data': data.get('scanned_data', 'manual_registration')
+        }
         
         try:
             cursor.execute('''
             INSERT INTO registrations 
             (ticket_id, first_name, last_name, email, phone, 
-             emergency_contact, medical_notes, worship_team, volunteer, barcode_data)
+             emergency_contact, medical_notes, worship_team, volunteer, scanned_data)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                data['ticket_id'], data['first_name'], data['last_name'],
-                data['email'], data.get('phone', ''),
-                data.get('emergency_contact', ''), data.get('medical_notes', ''),
-                data.get('worship_team', 0), data.get('volunteer', 0),
-                data['barcode_data']
+                registration_data['ticket_id'],
+                registration_data['first_name'],
+                registration_data['last_name'],
+                registration_data['email'],
+                registration_data['phone'],
+                registration_data['emergency_contact'],
+                registration_data['medical_notes'],
+                registration_data['worship_team'],
+                registration_data['volunteer'],
+                registration_data['scanned_data']
             ))
             
             conn.commit()
             conn.close()
-            
-            # Generate QR code
-            qr_img = self.barcode_gen.create_registration_qr(data['ticket_id'])
             
             return True, "Registration successful!", data['ticket_id'], qr_img
             
@@ -145,7 +195,7 @@ class EventDatabase:
         ''', (datetime.now(), ticket_id))
         
         if cursor.rowcount == 0:
-            # Try partial match or barcode scan
+            # Try partial match
             cursor.execute('''
             UPDATE registrations 
             SET checkin_time = ?, status = 'checked_in'
@@ -161,7 +211,13 @@ class EventDatabase:
             conn.close()
             return True, attendee
         else:
+            # Check if already checked in
+            cursor.execute('SELECT first_name, last_name, status FROM registrations WHERE ticket_id LIKE ?', (f"%{ticket_id}%",))
+            result = cursor.fetchone()
             conn.close()
+            
+            if result and result[2] == 'checked_in':
+                return False, (result[0], result[1])  # Return attendee info
             return False, None
     
     def get_dashboard_stats(self, event_date=None):
@@ -220,3 +276,55 @@ class EventDatabase:
         
         conn.close()
         return stats
+    
+    def search_registrations(self, search_term):
+        """Search registrations by name, email, or ticket ID"""
+        conn = self.get_connection()
+        
+        query = '''
+        SELECT ticket_id, first_name, last_name, email, phone, status, 
+               datetime(registration_time) as reg_time
+        FROM registrations
+        WHERE first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR ticket_id LIKE ?
+        ORDER BY registration_time DESC
+        LIMIT 50
+        '''
+        
+        search_pattern = f"%{search_term}%"
+        df = pd.read_sql_query(query, conn, params=(search_pattern, search_pattern, 
+                                                   search_pattern, search_pattern))
+        conn.close()
+        return df
+    
+    def get_recent_registrations(self, limit=20):
+        """Get recent registrations"""
+        conn = self.get_connection()
+        
+        query = f'''
+        SELECT ticket_id, first_name, last_name, email, status, 
+               datetime(registration_time) as reg_time
+        FROM registrations
+        ORDER BY registration_time DESC
+        LIMIT {limit}
+        '''
+        
+        df = pd.read_sql_query(query, conn)
+        conn.close()
+        return df
+    
+    def backup_database(self):
+        """Create a backup of the database"""
+        import shutil
+        import os
+        from datetime import datetime
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = f"backups/event_registration_backup_{timestamp}.db"
+        
+        # Create backups directory if it doesn't exist
+        os.makedirs("backups", exist_ok=True)
+        
+        # Copy the database file
+        shutil.copy2(self.db_path, backup_path)
+        
+        return backup_path
