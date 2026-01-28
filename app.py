@@ -17,6 +17,14 @@ import os
 import tempfile
 import shutil
 
+# Page configuration
+st.set_page_config(
+    page_title="Rooted World Tour - Registration & Check-in",
+    page_icon="🌿",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # Check if query_params is available
 if hasattr(st, 'query_params'):
     query_params = st.query_params
@@ -375,14 +383,6 @@ def _extract_ticket_id(qr_data):
         return match.group(1)
     
     return None
-
-# Page configuration
-st.set_page_config(
-    page_title="Rooted World Tour - Registration & Check-in",
-    page_icon="🌿",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # Custom CSS
 st.markdown("""
