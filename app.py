@@ -17,6 +17,14 @@ import os
 import tempfile
 import shutil
 
+# Page configuration
+st.set_page_config(
+    page_title="Rooted World Tour - Registration & Check-in",
+    page_icon="🌿",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # Check if query_params is available
 if hasattr(st, 'query_params'):
     query_params = st.query_params
@@ -26,13 +34,6 @@ else:
     # Optionally add a warning
     st.sidebar.warning("⚠️ Auto-checkin from URL requires Streamlit 1.24.0+")
     
-# Page configuration
-st.set_page_config(
-    page_title="Rooted World Tour - Registration & Check-in",
-    page_icon="🌿",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # Try to import barcode scanning libraries
 try:
