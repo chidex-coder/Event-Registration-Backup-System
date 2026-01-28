@@ -792,6 +792,7 @@ if st.session_state.page == "Home":
 elif st.session_state.page == "Register":
     st.title("🎟️ New Registration")
     
+    
     # Show current event info
     st.info("""
     **Current Event:** Rooted World Tour Worship Night  
@@ -799,9 +800,32 @@ elif st.session_state.page == "Register":
     **Location:** Main Auditorium  
     **Check-in Method:** QR Code Scanning
     """)
-    
+
+    # ─────────────────────────────────────
+    # 🎟 REGISTRATION QR (ADD THIS BLOCK)
+    # ─────────────────────────────────────
+    st.markdown("---")
+    st.subheader("🎟 Scan to Register on Your Phone")
+
+    if "barcode_gen" not in st.session_state:
+        st.session_state.barcode_gen = BarcodeGenerator()
+
+    if "registration_qr" not in st.session_state:
+        st.session_state.registration_qr = (
+            st.session_state.barcode_gen.create_registration_qr()
+        )
+
+    st.image(
+        st.session_state.registration_qr,
+        width=320,
+        caption="Scan with your phone camera to open the registration form"
+    )
+
+    st.markdown("---")
+
     # Registration form
     form_valid, form_data = create_registration_form()
+
     
     if form_valid:
         with st.spinner("Processing registration..."):
