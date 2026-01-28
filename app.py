@@ -30,6 +30,7 @@ except ImportError:
     print("QR libraries not available, using fallback methods")
 
 # Try to import Google Drive libraries
+from drive_handler import HybridDatabase
 try:
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import Flow
@@ -366,16 +367,6 @@ def _extract_ticket_id(qr_data):
     
     return None
 
-# Helper function to get query parameters (compatible with older Streamlit versions)
-def get_query_params():
-    """Get query parameters from URL"""
-    try:
-        # Try the new way first (Streamlit >= 1.24)
-        return st.query_params
-    except AttributeError:
-        # Fallback for older versions - we'll simulate query params
-        return {}
-
 # Page configuration
 st.set_page_config(
     page_title="Rooted World Tour - Registration & Check-in",
@@ -565,49 +556,61 @@ if 'google_auth_status' not in st.session_state:
     st.session_state.google_auth_status = "Not connected"
 if 'google_auth_message' not in st.session_state:
     st.session_state.google_auth_message = ""
-if 'auto_checkin_processed' not in st.session_state:
-    st.session_state.auto_checkin_processed = False
 
 # ==================== AUTO-CHECKIN FROM MOBILE CAMERA ====================
 # Handle auto-checkin from mobile camera scans
-try:
-    # Try to get query params with compatibility layer
-    query_params = get_query_params()
+query_params = st.query_params
+
+# Check if we have ticket and action parameters (from mobile camera scan)
+if 'ticket' in query_params and 'action' in query_params:
+    ticket_id = query_params['ticket'][0] if isinstance(query_params['ticket'], list) else query_params['ticket']
+    action = query_params['action'][0] if isinstance(query_params['action'], list) else query_params['action']
     
-    # Check if we have ticket and action parameters (from mobile camera scan)
-    # For Streamlit Cloud, we need to check the URL manually
-    # This is a simplified approach for compatibility
-    
-    # Create a manual check-in section instead of auto-checkin
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("📱 Quick Check-in")
-    
-    quick_ticket = st.sidebar.text_input("Ticket ID for quick check-in:", key="quick_checkin")
-    
-    if st.sidebar.button("Quick Check-in", type="primary"):
-        if quick_ticket:
-            with st.spinner(f"Checking in ticket {quick_ticket}..."):
-                success, attendee = st.session_state.db.quick_checkin(quick_ticket)
-                
-                if success:
-                    st.sidebar.success(f"✅ Welcome {attendee[0]} {attendee[1]}!")
-                    
-                    # Add to history
-                    st.session_state.scan_history.append({
-                        'ticket_id': quick_ticket,
-                        'name': f"{attendee[0]} {attendee[1]}",
-                        'time': datetime.now().strftime("%H:%M:%S"),
-                        'method': 'quick',
-                        'status': 'checked_in'
-                    })
-                else:
-                    st.sidebar.error(f"❌ Ticket {quick_ticket} not found or already checked in")
-        else:
-            st.sidebar.warning("Please enter a ticket ID")
+    if action == 'checkin':
+        # Clear parameters to prevent looping
+        st.query_params.clear()
+        
+        # Process the check-in
+        with st.spinner(f"Checking in ticket {ticket_id}..."):
+            success, attendee = st.session_state.db.quick_checkin(ticket_id)
             
-except Exception as e:
-    # If query params don't work, just continue with normal app
-    pass
+            if success:
+                # Show success page optimized for mobile
+                st.markdown(f"""
+                <div style="text-align: center; padding: 40px 20px;">
+                    <h1 style="color: #4CAF50; font-size: 3rem;">✅</h1>
+                    <h2 style="color: #1a5319;">Check-in Successful!</h2>
+                    <p style="font-size: 1.2rem; color: #333;">
+                        Welcome to Rooted World Tour,<br>
+                        <strong>{attendee[0]} {attendee[1]}</strong>
+                    </p>
+                    <div style="background: #f0f9f0; padding: 20px; border-radius: 10px; margin: 20px 0;">
+                        <p style="margin: 0;">🎫 <strong>Ticket ID:</strong> {ticket_id}</p>
+                        <p style="margin: 10px 0 0 0;">🕐 <strong>Time:</strong> {datetime.now().strftime("%I:%M %p")}</p>
+                    </div>
+                    <p style="color: #666; font-size: 0.9rem;">
+                        Enjoy the Worship Night Encounter!<br>
+                        Please proceed to the main auditorium.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Add celebration effect
+                st.balloons()
+                
+                # Auto-redirect after 5 seconds
+                st.markdown("""
+                <script>
+                    setTimeout(function() {
+                        window.location.href = "/";
+                    }, 5000);
+                </script>
+                """, unsafe_allow_html=True)
+                
+                # Stop further page rendering
+                st.stop()
+            else:
+                st.error(f"❌ Ticket {ticket_id} not found or already checked in")
 
 # Create sidebar and get selected page
 selected_page = create_sidebar()
@@ -1383,6 +1386,8 @@ elif st.session_state.page == "Dashboard":
     
     # Create and display charts
     if not df.empty:
+        charts = create_dashboard_charts(stats, df)
+        
         # Display charts in tabs
         tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "⏰ Time Analysis", "👥 Demographics", "📋 Raw Data"])
         
