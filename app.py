@@ -17,6 +17,15 @@ import os
 import tempfile
 import shutil
 
+# Check if query_params is available
+if hasattr(st, 'query_params'):
+    query_params = st.query_params
+else:
+    # Fallback for older versions
+    query_params = {}
+    # Optionally add a warning
+    st.sidebar.warning("⚠️ Auto-checkin from URL requires Streamlit 1.24.0+")
+
 # Try to import barcode scanning libraries
 try:
     import cv2
