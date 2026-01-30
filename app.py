@@ -36,16 +36,17 @@ else:
     
 
 # Try to import barcode scanning libraries
+# QR Scanning Imports - macOS compatible WITHOUT pyzbar
 try:
     import cv2
-    from pyzbar.pyzbar import decode
+    import numpy as np
     BARCODE_SCANNING_AVAILABLE = True
-    print("QR libraries loaded successfully")
+    print("OpenCV loaded successfully for QR scanning")
 except ImportError:
     BARCODE_SCANNING_AVAILABLE = False
     cv2 = None
-    decode = None
-    print("QR libraries not available, using fallback methods")
+    np = None
+    print("OpenCV not available, using fallback methods")
 
 # Try to import Google Drive libraries
 from drive_handler import HybridDatabase
@@ -63,7 +64,6 @@ except ImportError:
     print("Google Drive libraries not available")
 
 # Import custom modules
-# Note: You need to create these modules or handle their absence
 try:
     from database import EventDatabase
     from barcode_generator import BarcodeGenerator
@@ -802,7 +802,7 @@ elif st.session_state.page == "Register":
     """)
 
     # ─────────────────────────────────────
-    # 🎟 REGISTRATION QR (ADD THIS BLOCK)
+    # 🎟 REGISTRATION QR
     # ─────────────────────────────────────
     st.markdown("---")
     st.subheader("🎟 Scan to Register on Your Phone")
@@ -845,7 +845,7 @@ elif st.session_state.page == "Register":
                     # Display CHECK-IN QR code
                     if qr_img:
                         st.markdown('<div class="ticket-display">', unsafe_allow_html=True)
-                        st.image(qr_img, use_column_width=True)
+                        st.image(qr_img)
                         st.markdown(f"**Ticket ID:** `{ticket_id}`")
                         st.markdown("**Present this QR code at event entry**")
                         st.markdown('</div>', unsafe_allow_html=True)
@@ -960,7 +960,7 @@ elif st.session_state.page == "Check-in":
     
     with tab_webcam:
         st.subheader("Staff Webcam Scanner")
-        st.info("Use this for staff checking in attendees (requires laptop/desktop webcam)")
+        st.info("Using OpenCV's built-in QR code detector")
         
         if BARCODE_SCANNING_AVAILABLE:
             camera_img = st.camera_input(
@@ -970,64 +970,69 @@ elif st.session_state.page == "Check-in":
             
             if camera_img:
                 try:
-                    # Convert to OpenCV image
+                    # Convert to numpy array
                     img_bytes = camera_img.getvalue()
                     nparr = np.frombuffer(img_bytes, np.uint8)
                     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                     
-                    # Decode QR code
-                    decoded_objects = decode(img)
+                    # Use OpenCV's QR code detector
+                    qr_detector = cv2.QRCodeDetector()
                     
-                    if decoded_objects:
-                        for obj in decoded_objects:
-                            qr_data = obj.data.decode('utf-8')
-                            st.success(f"✅ QR Code Detected!")
-                            st.code(qr_data)
-                            
-                            # Extract ticket ID
-                            ticket_id = _extract_ticket_id(qr_data)
-                            
-                            if ticket_id:
-                                # Process check-in
-                                with st.spinner("Processing check-in..."):
-                                    success, attendee = st.session_state.db.quick_checkin(ticket_id)
-                                    if success:
-                                        st.success(f"✅ Check-in successful! Welcome {attendee[0]} {attendee[1]}!")
-                                        st.balloons()
-                                        
-                                        # Add to history
-                                        st.session_state.scan_history.append({
-                                            'ticket_id': ticket_id,
-                                            'name': f"{attendee[0]} {attendee[1]}",
-                                            'time': datetime.now().strftime("%H:%M:%S"),
-                                            'method': 'webcam',
-                                            'status': 'checked_in'
-                                        })
-                                    else:
-                                        st.warning(f"⚠️ Ticket {ticket_id} already checked in or not found")
-                            else:
-                                st.warning("Could not extract ticket ID from QR code")
+                    # Detect and decode
+                    data, vertices_array, binary_qrcode = qr_detector.detectAndDecode(img)
+                    
+                    if data:
+                        st.success(f"✅ QR Code Detected!")
+                        st.code(data)
+                        
+                        # Extract ticket ID
+                        ticket_id = _extract_ticket_id(data)
+                        
+                        if ticket_id:
+                            # Process check-in
+                            with st.spinner("Processing check-in..."):
+                                success, attendee = st.session_state.db.quick_checkin(ticket_id)
+                                if success:
+                                    st.success(f"✅ Check-in successful! Welcome {attendee[0]} {attendee[1]}!")
+                                    st.balloons()
+                                    
+                                    # Add to history
+                                    st.session_state.scan_history.append({
+                                        'ticket_id': ticket_id,
+                                        'name': f"{attendee[0]} {attendee[1]}",
+                                        'time': datetime.now().strftime("%H:%M:%S"),
+                                        'method': 'webcam',
+                                        'status': 'checked_in'
+                                    })
+                                else:
+                                    st.warning(f"⚠️ Ticket {ticket_id} already checked in or not found")
+                        else:
+                            st.warning("Could not extract ticket ID from QR code")
                     else:
                         st.warning("No QR code detected. Try again.")
                         
                 except Exception as e:
                     st.error(f"Error scanning QR code: {str(e)}")
+                    st.info("""
+                    **Troubleshooting tips:**
+                    1. Ensure good lighting
+                    2. Hold QR code steady
+                    3. Fill the frame with QR code
+                    4. Try the Camera Live tab
+                    """)
         else:
             st.error("""
-            **QR Scanner libraries not installed.**
+            **OpenCV not installed.**
             
-            Install required packages:
+            Install with:
             ```bash
-            pip install pyzbar opencv-python-headless pillow
+            pip install opencv-python-headless
             ```
             
-            **For macOS users:**
-            ```bash
-            brew install zbar pkg-config
-            pip install pyzbar opencv-python-headless pillow
-            ```
-            
-            **Alternative:** Use the **Camera Live** tab for a different camera experience.
+            **For now, use these alternatives:**
+            1. **Mobile Check-in** tab (attendees check themselves in)
+            2. **Camera Live** tab (alternative camera interface)
+            3. **Manual Entry** tab
             """)
     
     with tab_camera:
@@ -1610,7 +1615,7 @@ elif st.session_state.page == "Manage":
                     ticket = st.session_state.generated_tickets[i]
                     with st.expander(f"Ticket {i+1}: {ticket['ticket_id']}"):
                         if ticket['qr_image']:
-                            st.image(ticket['qr_image'], use_column_width=True)
+                            st.image(ticket['qr_image'])
                         st.code(f"ID: {ticket['ticket_id']}\nType: {ticket['type']}")
                         
                         # Download individual ticket
@@ -1741,19 +1746,151 @@ elif st.session_state.page == "Manage":
                     else:
                         st.info("Database backup simulation")
             
-            if st.button("Clear All Data", type="secondary", use_container_width=True):
-                st.warning("This action cannot be undone!")
-                if st.checkbox("I understand this will delete all data"):
-                    if st.button("Confirm Delete All Data", type="primary"):
-                        conn = st.session_state.db.get_connection()
-                        if conn:
-                            cursor = conn.cursor()
-                            cursor.execute("DELETE FROM registrations")
-                            conn.commit()
-                            conn.close()
-                            st.success("All data cleared!")
-                        else:
-                            st.error("Database not connected")
+            st.markdown("---")
+            st.markdown("### 🚨 System Reset")
+            
+            # Create a container for the reset section
+            reset_container = st.container()
+            
+            with reset_container:
+                st.warning("⚠️ This will delete ALL registration data!")
+                
+                reset_option = st.radio(
+                    "Reset Option:",
+                    ["Clear Data Only (Keep structure)", "Complete Reset (Recreate database)"],
+                    help="Clear Data: Delete all records but keep database structure. Complete Reset: Delete and recreate everything."
+                )
+                
+                confirm_text = st.text_input(
+                    "Type 'RESET' to confirm:",
+                    placeholder="Enter RESET to confirm deletion",
+                    key="reset_confirm"
+                )
+                
+                create_backup = st.checkbox("Create backup before resetting", value=True)
+                
+                col_reset1, col_reset2 = st.columns(2)
+                with col_reset1:
+                    if st.button("🚀 EXECUTE SYSTEM RESET", 
+                                type="primary",
+                                disabled=confirm_text != "RESET",
+                                use_container_width=True):
+                        
+                        with st.spinner("Resetting system..."):
+                            if reset_option == "Clear Data Only (Keep structure)":
+                                # Soft reset - delete data but keep tables
+                                conn = st.session_state.db.get_connection()
+                                if conn:
+                                    cursor = conn.cursor()
+                                    
+                                    # Get count before reset
+                                    cursor.execute("SELECT COUNT(*) FROM registrations")
+                                    count_before = cursor.fetchone()[0]
+                                    
+                                    # Delete all data
+                                    cursor.execute("DELETE FROM registrations")
+                                    cursor.execute("DELETE FROM events")
+                                    cursor.execute("DELETE FROM checkin_stations")
+                                    
+                                    # Reset auto-increment counters
+                                    cursor.execute("DELETE FROM sqlite_sequence")
+                                    
+                                    conn.commit()
+                                    conn.close()
+                                    
+                                    # Clear session state
+                                    st.session_state.scan_history = []
+                                    if 'generated_tickets' in st.session_state:
+                                        del st.session_state.generated_tickets
+                                    st.session_state.last_scanned = None
+                                    
+                                    st.success(f"✅ Data cleared! Deleted {count_before} registrations.")
+                                    st.balloons()
+                                    
+                                    # Refresh to show updated stats
+                                    st.rerun()
+                                else:
+                                    st.error("Database not connected")
+                            
+                            else:  # Complete Reset
+                                # Hard reset - delete database file and recreate
+                                try:
+                                    db_path = "event_registration.db"
+                                    
+                                    # Create backup if requested
+                                    if create_backup and os.path.exists(db_path):
+                                        import shutil
+                                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                        backup_dir = "backups"
+                                        os.makedirs(backup_dir, exist_ok=True)
+                                        backup_file = f"{backup_dir}/event_registration_backup_{timestamp}.db"
+                                        shutil.copy2(db_path, backup_file)
+                                        st.info(f"✅ Backup created: {backup_file}")
+                                    
+                                    # Close any existing connection
+                                    conn = st.session_state.db.get_connection()
+                                    if conn:
+                                        conn.close()
+                                    
+                                    # Delete the database file
+                                    if os.path.exists(db_path):
+                                        os.remove(db_path)
+                                        st.info("🗑️ Database file deleted")
+                                    
+                                    # Reinitialize the database
+                                    from database import EventDatabase
+                                    st.session_state.db = EventDatabase()
+                                    
+                                    # Clear all session state
+                                    for key in ['scan_history', 'generated_tickets', 'last_scanned']:
+                                        if key in st.session_state:
+                                            del st.session_state[key]
+                                    
+                                    # Reset page state
+                                    st.session_state.page = "Home"
+                                    
+                                    st.success("✅ Complete system reset! Database recreated from scratch.")
+                                    st.balloons()
+                                    
+                                    # Refresh to show clean state
+                                    st.rerun()
+                                    
+                                except Exception as e:
+                                    st.error(f"❌ Reset failed: {str(e)}")
+                
+                with col_reset2:
+                    if st.button("🔄 Quick Refresh Stats", type="secondary", use_container_width=True):
+                        st.rerun()
+                
+                # Show current database info
+                st.markdown("---")
+                st.markdown("**Current Database Info**")
+                
+                conn = st.session_state.db.get_connection()
+                if conn:
+                    cursor = conn.cursor()
+                    
+                    # Get counts
+                    cursor.execute("SELECT COUNT(*) FROM registrations")
+                    total_reg = cursor.fetchone()[0]
+                    
+                    cursor.execute("SELECT COUNT(*) FROM registrations WHERE status='checked_in'")
+                    checked_in = cursor.fetchone()[0]
+                    
+                    cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+                    table_count = cursor.fetchone()[0]
+                    
+                    conn.close()
+                    
+                    col_info1, col_info2, col_info3 = st.columns(3)
+                    with col_info1:
+                        st.metric("Total Records", total_reg)
+                    with col_info2:
+                        st.metric("Tables", table_count)
+                    with col_info3:
+                        st.metric("Database Size", f"{os.path.getsize('event_registration.db') / 1024:.1f} KB" if os.path.exists('event_registration.db') else "N/A")
+                else:
+                    st.info("Database information not available")
         
         with col2:
             st.markdown("**System Configuration**")
