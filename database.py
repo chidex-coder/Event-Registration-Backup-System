@@ -312,19 +312,76 @@ class EventDatabase:
         conn.close()
         return df
     
-    def backup_database(self):
+    def backup_database(self, backup_dir="backups"):
         """Create a backup of the database"""
-        import shutil
         import os
+        import shutil
         from datetime import datetime
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_path = f"backups/event_registration_backup_{timestamp}.db"
+        try:
+            # Create backup directory if it doesn't exist
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            # Create timestamped backup filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = os.path.join(backup_dir, f"event_registration_backup_{timestamp}.db")
+            
+            # Copy the database file
+            shutil.copy2(self.db_path, backup_path)
+            
+            # Also export to CSV
+            csv_path = os.path.join(backup_dir, f"registrations_backup_{timestamp}.csv")
+            self.export_to_csv(csv_path)
+            
+            return backup_path
+            
+        except Exception as e:
+            raise Exception(f"Backup failed: {str(e)}")
+
+    def export_to_csv(self, filepath):
+        """Export all registrations to CSV"""
+        conn = self.get_connection()
+        df = pd.read_sql_query("SELECT * FROM registrations", conn)
+        conn.close()
         
-        # Create backups directory if it doesn't exist
-        os.makedirs("backups", exist_ok=True)
-        
-        # Copy the database file
-        shutil.copy2(self.db_path, backup_path)
-        
-        return backup_path
+        if not df.empty:
+            df.to_csv(filepath, index=False)
+            return True
+        return False
+
+    def import_from_csv(self, filepath):
+        """Import registrations from CSV"""
+        try:
+            df = pd.read_csv(filepath)
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            for _, row in df.iterrows():
+                try:
+                    cursor.execute('''
+                    INSERT OR REPLACE INTO registrations 
+                    (ticket_id, first_name, last_name, email, phone, status, 
+                    registration_time, checkin_time, worship_team, volunteer)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        row.get('ticket_id'),
+                        row.get('first_name'),
+                        row.get('last_name'),
+                        row.get('email'),
+                        row.get('phone'),
+                        row.get('status', 'registered'),
+                        row.get('registration_time'),
+                        row.get('checkin_time'),
+                        row.get('worship_team', 0),
+                        row.get('volunteer', 0)
+                    ))
+                except Exception as e:
+                    print(f"Error importing row: {e}")
+            
+            conn.commit()
+            conn.close()
+            return True
+            
+        except Exception as e:
+            print(f"Import failed: {e}")
+            return False
