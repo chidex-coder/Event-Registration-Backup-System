@@ -303,6 +303,6 @@ def create_checkin_interface():
         search_term = st.text_input("Search by name:", placeholder="First or last name")
         if search_term:
             st.info(f"Search results for: {search_term}")
-            # In a real implementation, this would search the database
+            # This would search the database
     
     return None
