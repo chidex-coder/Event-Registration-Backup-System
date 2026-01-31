@@ -294,6 +294,11 @@ class EventDatabase:
         df = pd.read_sql_query(query, conn, params=(search_pattern, search_pattern, 
                                                    search_pattern, search_pattern))
         conn.close()
+        
+        if 'phone' in df.columns:
+            df['phone'] = df['phone'].astype(str)
+            df['phone'] = df['phone'].apply(lambda x: str(x).replace(',', '') if pd.notna(x) else '')
+
         return df
     
     def get_recent_registrations(self, limit=20):
@@ -310,6 +315,11 @@ class EventDatabase:
         
         df = pd.read_sql_query(query, conn)
         conn.close()
+        
+        if 'phone' in df.columns:
+            df['phone'] = df['phone'].astype(str)
+            df['phone'] = df['phone'].apply(lambda x: str(x).replace(',', '') if pd.notna(x) else '')
+        
         return df
     
     def backup_database(self, backup_dir="backups"):
@@ -343,6 +353,10 @@ class EventDatabase:
         conn = self.get_connection()
         df = pd.read_sql_query("SELECT * FROM registrations", conn)
         conn.close()
+        
+        if 'phone' in df.columns:
+            df['phone'] = df['phone'].astype(str)
+            df['phone'] = df['phone'].apply(lambda x: str(x).replace(',', '') if pd.notna(x) else '')
         
         if not df.empty:
             df.to_csv(filepath, index=False)
