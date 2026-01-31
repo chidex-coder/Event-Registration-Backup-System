@@ -148,19 +148,32 @@ def create_registration_form():
     return False, None
 
 def format_phone(phone):
-    """Format phone number consistently"""
+    """Format phone number consistently (supports international numbers)"""
     if not phone:
         return ""
-    
-    # Remove all non-numeric characters
+
+    # Keep digits only
     digits = ''.join(filter(str.isdigit, phone))
-    
+
+    # Nigeria (+234) → +234 902 014 9019
+    if digits.startswith("234") and len(digits) == 13:
+        return f"+234 {digits[3:6]} {digits[6:9]} {digits[9:]}"
+
+    # UK (+44) → +44 7058 866 939
+    if digits.startswith("44") and len(digits) >= 12:
+        return f"+44 {digits[2:6]} {digits[6:9]} {digits[9:]}"
+
+    # US/Canada (10 digits)
     if len(digits) == 10:
         return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
-    elif len(digits) == 11 and digits[0] == '1':
+
+    # US/Canada with country code
+    if len(digits) == 11 and digits.startswith("1"):
         return f"+1 ({digits[1:4]}) {digits[4:7]}-{digits[7:]}"
-    else:
-        return phone
+
+    # Fallback: return original input
+    return phone
+
 
 def create_sidebar():
     """Create the sidebar navigation"""
